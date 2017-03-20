@@ -23,7 +23,7 @@ class XX_Conf:
             lines = fd.readlines()
             for line in lines:
                 key, value = line.strip("\n ").split("=")
-                self._data[key] = value
+                self._data[key.strip(" ")] = value.strip(" ")
             fd.close()
     
     def __setitem__(self, key, value):
