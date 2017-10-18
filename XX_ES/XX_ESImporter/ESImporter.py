@@ -17,28 +17,36 @@ class ESImporter:
         self._type = type_name
         self._num_per_batch = num_per_batch
 
+    def submit_docs(self):
+        while True:
+            try:
+                res = self._es.bulk("\n".join(self._doc_buffer))
+                #print res
+                break
+            except Exception as e:
+                print "bulk failed"
+                continue
+            print "finish %d docs" % self._counter
+            self._doc_buffer = []
+
     def insert_to_es(self, doc):
         self._counter += 1
         if len(self._doc_buffer) >= self._num_per_batch:
-            while True:
-                try:
-                    res = self._es.bulk("\n".join(self._doc_buffer))
-                    break
-                except Exception as e:
-                    print "bulk failed"
-                    continue
-            print "finish %d docs" % self._counter
-            self._doc_buffer = []
+            self.submit_docs()
             # print res
+        if "_id" in doc:
+            #print doc
+            self._doc_buffer.append(json.dumps(
+                {'index': {'_id':doc["_id"],'_index': self._index, '_type': self._type}}))
+            del doc["_id"]
         else:
             self._doc_buffer.append(json.dumps(
                 {'index': {'_index': self._index, '_type': self._type}}))
-            self._doc_buffer.append(json.dumps(doc))
+        self._doc_buffer.append(json.dumps(doc))
 
     def commit_to_es(self):
-        res = self._es.bulk("\n".join(self._doc_buffer))
-        print "finish %d docs" % self._counter
-        self._doc_buffer = []
+        if len(self._doc_buffer)>0:
+            self.submit_docs()
 
 
 class Echo_ESImporter(ESImporter):

@@ -53,7 +53,9 @@ class ESExporter():
             return
         # print len(res['hits']['hits'])
         for record in res['hits']['hits']:
-            yield record["_source"]
+            ret_record = record["_source"]
+            ret_record["_id"] = record["_id"]
+            yield ret_record
         for record in self.fetch_data(scroll_id):
             yield record
 
