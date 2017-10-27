@@ -12,7 +12,23 @@ import time
 import logging
 import json
 import cPickle as pickle
+from datetime import datetime
 from XX_ES.XX_ESImporter.ESImporter import ESImporter
+
+
+class NewsProcesser():
+
+    def __init__(self):
+        pass
+
+    def process(self, news_info, doc):
+        return doc
+
+
+class NewsUploader():
+
+    def __init__(self):
+        pass
 
 
 class NewsCrawler:
@@ -24,10 +40,11 @@ class NewsCrawler:
                  list_url_tpl,
                  data_path,
                  website_name,
+                 b_class,
                  requests_interval = 1,
                  banned_interval = 5,
                  max_request_retry = 5,
-                 log_level = logging.DEBUG,
+                 log_level = logging.INFO, #logging.DEBUG,
                  log_filename = "./news_crawler.log",
                  checkpoint_filename = None,
                  ):
@@ -40,6 +57,7 @@ class NewsCrawler:
         self.data_path = data_path
         self.doc_counter = 0
         self.website_name = website_name
+        self.b_class = b_class
         logging.basicConfig(level=log_level,
                             format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
                             datefmt='%a, %d %b %Y %H:%M:%S',
@@ -60,6 +78,17 @@ class NewsCrawler:
         index_name = "nlp_stock_news_v1"
         type_name = "news"
         self.db_importer = ESImporter(es_server_list, index_name, type_name)
+        self.processors = []
+
+        #statistics
+        self.total_count = 0
+        self.download_failed_count = 0
+        self.download_failed_list = []
+        self.parse_failed_count = 0
+        self.parse_failed_list = []
+        self.upload_failed_count = 0 
+        self.upload_failed_list = []
+
 
     def __del__(self):
         ##dump check point 
@@ -81,7 +110,7 @@ class NewsCrawler:
         logging.debug("finished dumping checkpoint")
 
     def run(self):
-        #logging.info("crawler is running ....")
+        logging.info("stat:task:%s:%s:start:"%(self.website_name, self.b_class)+str(datetime.now()))
         while True:
             #generate list page url
             list_url = self.generate_next_list_url()
@@ -109,10 +138,12 @@ class NewsCrawler:
                     return True
                 news_url = news_info["url"]
                 #fetching news page
+                logging.info("stat:download:start:%s"%(news_url))
                 content = self.get(news_url)
                 if content is None:
                     #todo:
-                    logging.warning("Failed to download %s with content is None"%(news_url))
+                    logging.info("stat:download:end:failed")
+                    #logging.warning("Failed to download %s with content is None"%(news_url))
                     continue
                 #processing news page
                 self.process_news_page(news_info, content)
@@ -125,15 +156,38 @@ class NewsCrawler:
         step 3: upload to es
         '''
         filename = self.generate_news_filename(news_info)
+        if filename is None:
+            logging.warning("generate news filename falsed for %s"%(news_info["url"]))
+            return False
         self.write_to_file(filename, content)
         #todo: parse news page
+        logging.info("stat:parse:start:%s:%s"%(filename, news_info["url"]))
         pure_content = self.parse_news_page(news_info, content)
         #pure_content = {"url":"xx","title":"xx","pub_date":"xx","source":"xx","author":"xx","content":"xx"}
-        #todo: upload to es
+        if pure_content is None:
+            logging.info("stat:parse:end:failed")
+            return False
         doc = self.assemble_news_data(news_info, pure_content)
-        self.write_to_file(self.generate_news_filename(news_info)+".dict", json.dumps(doc))
+        #self.write_to_file(self.generate_news_filename(news_info)+".dict", json.dumps(doc))
+        #todo: process doces
+        doc = self.process_doc(doc)
+        ##upload
         self.upload_to_es(doc)
 
+    def add_processor(self, processor):
+        if not isinstance(processor, NewsProcesser):
+            return False
+        self.processors.append(processor)
+        return len(processor)
+
+    def process_doc(self, doc):
+        logging.info("stat:process:start:%s"%(doc["_id"]))
+        for processor in self.processors:
+            doc = processor.process(doc)
+            if doc is None:
+                logging.info("stat:process:end:failed")
+                return None
+        return doc
 
     def upload_to_es(self, doc):
         self.db_importer.insert_to_es(doc)
@@ -178,6 +232,7 @@ class NewsCrawler:
     ##overwrite function
     def task_finished(self):
         self.db_importer.commit_to_es()
+        logging.info("stat:task:end:"+str(datetime.now()))
         pass
 
     ##overwrite to generate news page filename
