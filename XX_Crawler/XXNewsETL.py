@@ -318,7 +318,7 @@ class NewsCrawler:
            when the old news are meet return None to end the whole process
            return :
                this function yield news_info which is a dict whoes keys
-               are url, title, 
+               are url, title,
         '''
         for news_info in self.parse_list_page(content):
             if not self.news_need_update(news_info):
@@ -380,8 +380,14 @@ class NewsPipeline():
         '''
         # check format of configuration file
         if "websites" not in conf:
-            raise Exception("no websites field in conf")
-
+            raise Exception('No "websites" field in pipeline conf')
+        if not isinstance(conf["websites"],list):
+            raise Exception('conf["websites"] is no a list')
+        for i, domain_info in enumerate(conf["websites"]):
+            if "domain_name" not in domain_info:
+                raise Exception('No "domain_name" field in No.%d website'%(i+1))
+            if "pipelines" not in domain_info:
+                raise Exception('No "pipelines" field in website %s'%(domain_info["domain_name"]))
         self.conf = conf
         pass
 
@@ -408,6 +414,27 @@ class NewsWorker(Process):
 
     def __init__(self, conf, domain_name):
         Process.__init__(self)
+        # todo: check conf format
+        if not isinstance(conf,list):
+            raise Exception('conf["pipelines"] for website %s is not a list'%(domain_name))
+        pipeline_fields = ["name","log_level","log_filename","crawler","transformers","uploader"]
+        for i, pipeline_conf in enumerate(conf):
+            for pfield in pipeline_fields:
+                if pfield not in pipeline_conf:
+                    raise Exception('Key "%s" not in No.%d pipeline of website %s'%(pfield,i+1,domain_name))
+            if not isinstance(pipeline_conf["transformers"],list):
+                raise Exception('transformers of pipeline %s in website %s is not a list'%(pipeline_conf["name"],domain_name))
+            pipeline_workers = ["crawler","uploader"]
+            for pworker in pipeline_workers:
+                if "name" not in pipeline_conf[pworker]:
+                    raise Exception('No "name" in %s of pipeline %s of website %s'%(pworker,pipeline_conf["name"],domain_name))
+                if "params" not in pipeline_conf[pworker]:
+                    raise Exception('No "params" in %s of pipeline %s of website %s'%(pworker,pipeline_conf["name"],domain_name))
+            for j,pworker in enumerate(pipeline_conf["transformers"]):
+                if "name" not in pworker:
+                    raise Exception('No "name" in No.%d transformer of pipeline %s of website %s'%(j+1,pipeline_conf["name"],domain_name))
+                if "params" not in pworker:
+                    raise Exception('No "params" in No.%d transformer of pipeline %s of website %s'%(j+1,pipeline_conf["name"],domain_name))
         self.conf = conf
         self.domain_name = domain_name
         # todo: check conf format
